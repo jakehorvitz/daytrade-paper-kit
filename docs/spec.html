@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Spec — Day-trading AI starter kit (paper only)</title>
+</head>
+<body>
+<h1>Spec: Day-trading AI starter kit (paper only)</h1>
+<p>Stage 3 artifact. Derived from <code>docs/interrogation.md</code> revision 2 (score 96/100). Revised draft —
+awaiting Jake's Stage 3 sign-off. Every later stage is held to the version he signs.</p>
+
+<h2>Scope (v1)</h2>
+<ul>
+  <li>Python 3.11+ package <code>src/daytrade/</code>, pytest suite, offline by default.</li>
+  <li>Deterministic SMA-crossover baseline strategy.</li>
+  <li>Paper-only simulated broker. Alpaca paper adapter stub with hardcoded paper base URL.</li>
+  <li>Risk manager: position cap, daily loss cap, persisted kill switch.</li>
+  <li>Backtester: next-open fills, slippage default 5 bps, commission 0, final 20% holdout, buy-and-hold benchmark, and an equity curve.</li>
+  <li>Optional LLM signal adapter, off by default, schema-validated, and not recommended by default.</li>
+  <li><code>docs/WORKFLOW.md</code>: how Justin runs the Bones pipeline on this repo.</li>
+</ul>
+
+<h2>Confirmed decisions</h2>
+<ul>
+  <li>Broker: Alpaca paper. The adapter uses only the hardcoded paper endpoint.</li>
+  <li>Priority order: safety, then speed, then simplicity. This supersedes the Stage 1 priority paragraph; <code>docs/interrogation.md</code> remains a pinned historical record and is not edited.</li>
+</ul>
+
+<h2>Non-goals</h2>
+<ul>
+  <li>Any live-trading code path. None exists in v1.</li>
+  <li>Real-money brokers, real-time feeds, options or futures, web UI.</li>
+  <li>Profitability claims or investment advice.</li>
+  <li>Keys, personal data, Jake's memory, brains, or owner keys in the repo or the gift package.</li>
+</ul>
+
+<h2>Acceptance checklist</h2>
+<ol>
+  <li><strong>AC-01</strong> CSV input requires <code>timestamp,open,high,low,close,volume</code>. The loader rejects missing columns; nonnumeric or nonfinite OHLC/volume values; OHLC values that are zero or negative; negative volume; <code>high &lt; low</code>; <code>open</code> or <code>close</code> outside <code>[low, high]</code>; duplicate timestamps; and non-monotonic timestamps. Every rejection reports the row and field/rule and has a test.</li>
+  <li><strong>AC-02</strong> A timestamp must be ISO 8601 with an explicit timezone (<code>Z</code> allowed). The loader converts aware offsets to UTC and rejects malformed or timezone-naive values; duplicate and monotonic checks occur after normalization. Loaded timestamps are UTC. Prices are documented as unadjusted.</li>
+  <li><strong>AC-03</strong> SMA-crossover baseline is deterministic: the same input gives the same signals.</li>
+  <li><strong>AC-04</strong> Risk manager enforces the position cap as a fraction of current equity, counting pending orders.</li>
+  <li><strong>AC-05</strong> Daily loss is realized plus unrealized loss against start-of-day equity, with the trading day in America/New_York.</li>
+  <li><strong>AC-06</strong> Kill switch persists to <code>.daytrade/kill_switch.json</code>, blocks all orders once tripped, and survives a restart. It clears only manually.</li>
+  <li><strong>AC-07</strong> Alpaca broker base URL is hardcoded to the paper endpoint. Constructing it with any other URL raises before any network call (test asserts no socket opened). No live-mode flag or env override exists.</li>
+  <li><strong>AC-08</strong> Backtester fills actionable signals only at the next bar's open, applies 5 bps slippage and 0 commission by default, and writes those cost settings to <code>reports/summary.json</code>. A final-bar signal has no fill; open positions are marked to the final close net of existing fill costs. It writes <code>reports/equity_curve.csv</code> with a UTC timestamp and account equity for every evaluated bar.</li>
+  <li><strong>AC-09</strong> For <code>N</code> bars, the chronological holdout is the final <code>k = ceil(0.2*N)</code> bars. It requires at least two holdout bars and a pre-holdout prefix of at least <code>slow_window + 1</code> bars; otherwise the backtest fails with a clear error. Prior bars may warm indicators only; no tuning uses holdout bars. The holdout uses a fresh paper account and the same starting equity, risk, and cost settings for baseline, LLM (when enabled), and buy-and-hold comparisons. Summary reports holdout and buy-and-hold return metrics on the same bars.</li>
+  <li><strong>AC-10</strong> LLM adapter is off by default. It accepts only strict JSON with <code>action</code> equal to <code>buy</code>, <code>sell</code>, or <code>hold</code>; <code>confidence</code> a finite numeric (not boolean) in <code>[0,1]</code>; and <code>reason</code> a string. Schema/type failure or a 10 s timeout yields <code>hold</code> through the risk manager. Raw responses are logged to <code>reports/llm_log.jsonl</code>; the adapter cannot bypass risk. When enabled, the summary reports LLM and baseline holdout net total return side by side and <code>beats_baseline</code> is true only for strict <code>&gt;</code> (ties fail). Documentation may recommend LLM only with comparable non-synthetic holdout evidence that passes this test; v1 labels it unvalidated and makes no default recommendation.</li>
+  <li><strong>AC-11</strong> <code>python3 -m pytest -q</code> passes. <code>python3 -m daytrade.backtest examples/sample.csv</code> exits 0 and writes <code>reports/summary.json</code> and <code>reports/equity_curve.csv</code>.</li>
+  <li><strong>AC-12</strong> <code>examples/sample.csv</code> is generated deterministically (seed 7, synthetic, not market data). Sample config includes <code>max_position_pct: 0.10</code> and <code>max_daily_loss_pct: 0.02</code>.</li>
+  <li><strong>AC-13</strong> Every run prints the disclaimer: paper-only, no profitability claim.</li>
+  <li><strong>AC-14</strong> <code>docs/WORKFLOW.md</code> and <code>README.md</code> exist. README states paper-only and no investment advice.</li>
+</ol>
+
+<h2>API validation record (spec time)</h2>
+<p>Date (UTC): 2026-11-03T21:19:17Z. Read-only probe of an unauthenticated endpoint, no keys used.</p>
+<ul>
+  <li><code>https://paper-api.alpaca.markets/v2/clock</code>: HTTP 401. The paper endpoint exists and requires auth.</li>
+  <li><code>https://api.alpaca.markets/v2/clock</code>: HTTP 401. The live endpoint also responds. This is why AC-07 hardcodes the paper URL and rejects all others.</li>
+</ul>
+<p>No keys are stored in the repo. Keys are read from the user's environment at runtime, and no code path uses them in v1.</p>
+
+<h2>Resolved items for Jake</h2>
+<ul>
+  <li>Broker choice: Alpaca paper.</li>
+  <li>Priority framing: safety, then speed, then simplicity.</li>
+</ul>
+</body>
+</html>

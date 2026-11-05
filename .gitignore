@@ -1,0 +1,12 @@
+.bones/
+.loop/
+__pycache__/
+*.pyc
+.venv/
+reports/
+.daytrade/
+.env
+*.egg-info/
+build/
+dist/
+.pytest_cache/
